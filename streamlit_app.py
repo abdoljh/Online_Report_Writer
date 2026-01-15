@@ -20,7 +20,7 @@ ALLOWED_DOMAINS = [".edu", ".gov", ".org", "ieee.org", "nature.com", "sciencedir
 
 LLM_MODEL = "gpt-4o-mini"  # or your preferred model
 SEARCH_API_KEY = "YOUR_SEARCH_API_KEY"
-OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
+OPENAI_API_KEY = "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"
 
 # ============================
 # Data Models
