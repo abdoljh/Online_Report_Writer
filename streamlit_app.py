@@ -16,11 +16,17 @@ st.markdown("""
 
 # --- Helper Functions ---
 def calculate_credibility(url):
-    [span_0](start_span)"""Calculates credibility score based on domain[span_0](end_span)."""
-    if any(d in url for d in ['.gov', '.edu', 'nature.com', 'science.org']): return 95
-    if any(d in url for d in ['ieee.org', 'acm.org']): return 90
-    if '.org' in url: return 85
-    return 80
+    """Calculates credibility score based on domain."""
+    # [span_0](start_span)Logic based on[span_0](end_span)
+    if '.gov' in url or '.edu' in url: 
+        [span_1](start_span)return 95[span_1](end_span)
+    if 'nature.com' in url or 'science.org' in url: 
+        [span_2](start_span)return 95[span_2](end_span)
+    if 'ieee.org' in url or 'acm.org' in url: 
+        [span_3](start_span)return 90[span_3](end_span)
+    if '.org' in url: 
+        [span_4](start_span)return 85[span_4](end_span)
+    [span_5](start_span)return 80[span_5](end_span)
 
 def call_llm(messages, max_tokens=2000):
     [span_1](start_span)[span_2](start_span)[span_3](start_span)"""Placeholder for the Claude API call structure used in the source[span_1](end_span)[span_2](end_span)[span_3](end_span)."""
