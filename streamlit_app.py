@@ -121,6 +121,8 @@ def parse_json_response(text: str) -> Dict:
         st.error(f"Failed to parse JSON response: {text[:200]}...")
         return {}
 
+
+# claude-3-sonnet-20240229 old model
 def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_web_search: bool = False) -> Dict:
     """Call Anthropic Claude API"""
     if not API_AVAILABLE:
@@ -133,7 +135,7 @@ def call_anthropic_api(messages: List[Dict], max_tokens: int = 1000, use_web_sea
     }
     
     data = {
-        "model": "claude-3-sonnet-20240229",
+        "model": "claude-sonnet-4-20250514",
         "max_tokens": max_tokens,
         "messages": messages
     }
