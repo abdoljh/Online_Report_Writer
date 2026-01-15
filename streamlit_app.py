@@ -29,11 +29,13 @@ SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "serpapi")
 PDF_ENGINE = os.getenv("PDF_ENGINE", "weasyprint")
 
 # Get API key from Streamlit secrets
-try:
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
+# Access secrets safely
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY")
+SEARCH_API_KEY = st.secrets.get("SEARCH_API_KEY")
 
+# Check if they exist
 if not OPENAI_API_KEY or not SEARCH_API_KEY:
+    st.error("Missing API keys in Streamlit Secrets!")
     raise RuntimeError("Missing API keys. Check Streamlit Secrets.")
 
 # ============================
