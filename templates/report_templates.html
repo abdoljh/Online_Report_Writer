@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{ metadata.topic }}</title>
+<style>
+body { font-family: "Times New Roman"; margin: 1in; }
+h1,h2 { border-bottom: 1px solid #333; }
+</style>
+</head>
+<body>
+
+<h1>{{ metadata.topic }}</h1>
+<p><strong>Subject:</strong> {{ metadata.subject }}</p>
+<p><strong>Researcher:</strong> {{ metadata.researcher }}</p>
+<p><strong>Institution:</strong> {{ metadata.institution }}</p>
+<p><strong>Date:</strong> {{ metadata.date }}</p>
+
+<hr>
+
+{% for section, text in content.items() %}
+<h2>{{ section.replace("_", " ").title() }}</h2>
+<p>{{ text }}</p>
+{% endfor %}
+
+<h2>References</h2>
+{% for ref in references %}
+<p>{{ ref }}</p>
+{% endfor %}
+
+</body>
+</html>
