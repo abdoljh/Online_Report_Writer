@@ -42,11 +42,24 @@ if not OPENAI_API_KEY or not SEARCH_API_KEY:
 # PATHS
 # ============================
 
-BASE_DIR = Path(__file__).parent
+#BASE_DIR = Path(__file__).parent
+#OUTPUT_DIR = BASE_DIR / "outputs"
+#TEMPLATE_DIR = BASE_DIR / "templates"
+
+#OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+# Define your base directory (the folder where your script lives)
+BASE_DIR = Path(__file__).resolve().parent
+
+# Define subdirectories
 OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Ensure the directories exist (prevents FileNotFoundError)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # ============================
 # CONFIG
