@@ -1,29 +1,63 @@
+# Streamlit app.py
+# v2.0
+# ChatGPT
+# Jan. 15, 2026
 
-import streamlit as st
+import os
+import json
 import asyncio
 import uuid
-import json
 import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Dict
-import requests
 from pathlib import Path
+from dotenv import load_dotenv
+
+import streamlit as st
+import httpx
+from jinja2 import Environment, FileSystemLoader
 
 # ============================
-# Configuration
+# ENVIRONMENT
 # ============================
 
-OUTPUT_DIR = Path("outputs")
+load_dotenv()
+
+#OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+#SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "serpapi")
+PDF_ENGINE = os.getenv("PDF_ENGINE", "weasyprint")
+
+# Get API key from Streamlit secrets
+try:
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
+
+if not OPENAI_API_KEY or not SEARCH_API_KEY:
+    raise RuntimeError("Missing API keys. Check Streamlit Secrets.")
+
+# ============================
+# PATHS
+# ============================
+
+BASE_DIR = Path(__file__).parent
+OUTPUT_DIR = BASE_DIR / "outputs"
+TEMPLATE_DIR = BASE_DIR / "templates"
+
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-ALLOWED_DOMAINS = [".edu", ".gov", ".org", "ieee.org", "nature.com", "sciencedirect.com", "acm.org", "springer.com"]
+# ============================
+# CONFIG
+# ============================
 
-LLM_MODEL = "gpt-4o-mini"  # or your preferred model
-SEARCH_API_KEY = "YOUR_SEARCH_API_KEY"
-OPENAI_API_KEY = "OPENAI_API_KEY"
+ALLOWED_DOMAINS = [
+    ".edu", ".gov", ".org",
+    "ieee.org", "nature.com", "sciencedirect.com",
+    "acm.org", "springer.com", "nih.gov", "who.int"
+]
 
 # ============================
-# Data Models
+# DATA MODELS
 # ============================
 
 @dataclass
@@ -47,11 +81,11 @@ class ReportMetadata:
     date: str
 
 # ============================
-# Utility Functions
+# UTILITIES
 # ============================
 
 def domain_allowed(url: str) -> bool:
-    return any(domain in url.lower() for domain in ALLOWED_DOMAINS)
+    return any(d in url.lower() for d in ALLOWED_DOMAINS)
 
 def save_json(data, filename):
     path = OUTPUT_DIR / filename
@@ -60,37 +94,42 @@ def save_json(data, filename):
     return path
 
 # ============================
-# Base Agent
+# BASE AGENT
 # ============================
 
 class Agent:
     def __init__(self, name: str):
         self.name = name
 
-    async def run(self, input_data):
+    async def run(self, *args, **kwargs):
         raise NotImplementedError
 
 # ============================
-# Agents
+# AGENTS
 # ============================
 
 class TopicAnalyzerAgent(Agent):
-    async def run(self, topic: str):
+    async def run(self, topic):
         return {
             "main_topic": topic,
-            "subtopics": ["technical advances", "statistics", "applications", "ethics", "industry adoption", "future trends"],
-            "research_dimensions": ["technical", "statistical", "policy", "applications", "ethics", "future"],
-            "keyword_clusters": {
-                "technical": [topic, "deep learning", "transformers"],
-                "statistics": [topic, "market size", "publications"],
-                "policy": [topic, "regulation", "governance"]
-            }
+            "subtopics": [
+                "technical advances",
+                "statistics",
+                "industry adoption",
+                "ethics and governance",
+                "policy",
+                "future outlook"
+            ],
+            "research_dimensions": [
+                "technical", "statistical", "industry",
+                "ethics", "policy", "future"
+            ]
         }
 
 class ResearchPlannerAgent(Agent):
-    async def run(self, topic_analysis: Dict):
-        queries = []
+    async def run(self, topic_analysis):
         base = topic_analysis["main_topic"]
+        queries = []
 
         for dim in topic_analysis["research_dimensions"]:
             queries.append({"query": f"{base} {dim} site:edu", "category": dim})
@@ -99,8 +138,10 @@ class ResearchPlannerAgent(Agent):
         return {"queries": queries[:15]}
 
 class SearchAgent(Agent):
-    async def run(self, query_obj: Dict):
-        # Placeholder: integrate SerpAPI / Bing API here
+    async def run(self, query_obj):
+        # Placeholder for SerpAPI / Bing integration
+        await asyncio.sleep(0.1)
+
         return {
             "raw_results": [
                 {
@@ -113,13 +154,21 @@ class SearchAgent(Agent):
         }
 
 class SourceValidatorAgent(Agent):
-    async def run(self, raw_sources: List[Dict]):
+    async def run(self, raw_sources):
         accepted = []
         rejected = []
         sid = 1
 
+        seen_urls = set()
+
         for src in raw_sources:
-            if domain_allowed(src["url"]):
+            url = src["url"]
+
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+
+            if domain_allowed(url):
                 accepted.append(Source(
                     id=sid,
                     title=src["title"],
@@ -128,7 +177,7 @@ class SourceValidatorAgent(Agent):
                     publisher="Stanford",
                     journal="AI Index",
                     doi="",
-                    url=src["url"],
+                    url=url,
                     credibility_score=0.95
                 ))
                 sid += 1
@@ -138,113 +187,117 @@ class SourceValidatorAgent(Agent):
         return {"accepted_sources": accepted, "rejected_sources": rejected}
 
 class KnowledgeBaseBuilderAgent(Agent):
-    async def run(self, sources: List[Source]):
+    async def run(self, sources):
         facts = []
         for s in sources:
             facts.append({
-                "claim": f"Information derived from {s.title}",
+                "claim": f"Derived insight from {s.title}",
                 "source_id": s.id,
                 "confidence": s.credibility_score
             })
         return {"facts": facts}
 
 class WriterAgent(Agent):
-    async def run(self, kb: Dict, metadata: ReportMetadata):
-        sections = {
-            "abstract": "This report analyzes recent developments...",
-            "introduction": f"This report explores {metadata.topic}.",
-            "body": "Detailed technical and statistical discussion.",
-            "conclusion": "Summary of findings."
+    async def run(self, kb, metadata):
+        return {
+            "draft_v1": {
+                "abstract": f"This report analyzes {metadata.topic}.",
+                "introduction": f"{metadata.topic} is a rapidly evolving field.",
+                "analysis": "Detailed technical and statistical analysis.",
+                "conclusion": "Summary of findings."
+            }
         }
-        return {"draft_v1": sections}
 
 class CriticAgent(Agent):
-    async def run(self, draft: Dict, kb: Dict):
+    async def run(self, draft, kb):
         return {
             "issues": [],
-            "recommendations": ["Improve transitions", "Add more citations"]
+            "recommendations": ["Expand statistical justification"]
         }
 
 class RefinerAgent(Agent):
-    async def run(self, draft: Dict, critic_report: Dict):
-        refined = draft.copy()
-        refined["executive_summary"] = "Executive summary added."
+    async def run(self, draft, critic):
+        refined = dict(draft)
+        refined["executive_summary"] = "This report summarizes major findings."
         return {"final_text": refined}
 
 class CitationManagerAgent(Agent):
-    async def run(self, final_text: Dict, sources: List[Source]):
-        references = []
+    async def run(self, final_text, sources):
+        refs = []
         for s in sources:
-            references.append(f"[{s.id}] {s.title}. {s.publisher}, {s.year}. {s.url}")
-        return {"references": references}
+            refs.append(f"[{s.id}] {s.title}. {s.publisher}, {s.year}. {s.url}")
+        return {"references": refs}
 
 class PDFGeneratorAgent(Agent):
-    async def run(self, final_text: Dict, references: List[str], metadata: ReportMetadata):
-        html = f"""
-        <html><body>
-        <h1>{metadata.topic}</h1>
-        <h3>{metadata.researcher} - {metadata.institution}</h3>
-        <p>{metadata.date}</p>
-        <hr/>
-        """
+    async def run(self, final_text, references, metadata):
+        env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+        template = env.get_template("report_template.html")
 
-        for k, v in final_text.items():
-            html += f"<h2>{k}</h2><p>{v}</p>"
-
-        html += "<h2>References</h2>"
-        for r in references:
-            html += f"<p>{r}</p>"
-
-        html += "</body></html>"
+        html = template.render(
+            metadata=metadata,
+            content=final_text,
+            references=references
+        )
 
         html_path = OUTPUT_DIR / "report.html"
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
 
-        return {"html_path": str(html_path)}
+        pdf_path = None
+
+        if PDF_ENGINE == "weasyprint":
+            try:
+                from weasyprint import HTML
+                pdf_path = OUTPUT_DIR / "report.pdf"
+                HTML(string=html).write_pdf(pdf_path)
+            except Exception as e:
+                print("PDF generation failed:", e)
+
+        return {"html": html_path, "pdf": pdf_path}
 
 class AuditExporterAgent(Agent):
-    async def run(self, audit_data: Dict):
+    async def run(self, audit_data):
         return save_json(audit_data, "audit.json")
 
 # ============================
-# Orchestrator
+# ORCHESTRATOR
 # ============================
 
 class Orchestrator:
-
     def __init__(self):
-        self.topic_agent = TopicAnalyzerAgent("TopicAnalyzer")
-        self.planner_agent = ResearchPlannerAgent("Planner")
-        self.search_agent = SearchAgent("Searcher")
-        self.validator_agent = SourceValidatorAgent("Validator")
-        self.kb_agent = KnowledgeBaseBuilderAgent("KB")
-        self.writer_agent = WriterAgent("Writer")
-        self.critic_agent = CriticAgent("Critic")
-        self.refiner_agent = RefinerAgent("Refiner")
-        self.citation_agent = CitationManagerAgent("Citation")
-        self.pdf_agent = PDFGeneratorAgent("PDF")
-        self.audit_agent = AuditExporterAgent("Audit")
+        self.topic = TopicAnalyzerAgent("Topic")
+        self.planner = ResearchPlannerAgent("Planner")
+        self.search = SearchAgent("Search")
+        self.validator = SourceValidatorAgent("Validator")
+        self.kb = KnowledgeBaseBuilderAgent("KB")
+        self.writer = WriterAgent("Writer")
+        self.critic = CriticAgent("Critic")
+        self.refiner = RefinerAgent("Refiner")
+        self.citation = CitationManagerAgent("Citation")
+        self.pdf = PDFGeneratorAgent("PDF")
+        self.audit = AuditExporterAgent("Audit")
 
-    async def run(self, metadata: ReportMetadata):
+    async def run(self, metadata):
 
-        topic_analysis = await self.topic_agent.run(metadata.topic)
-        plan = await self.planner_agent.run(topic_analysis)
+        topic_analysis = await self.topic.run(metadata.topic)
+        plan = await self.planner.run(topic_analysis)
+
+        search_tasks = [self.search.run(q) for q in plan["queries"]]
+        search_results = await asyncio.gather(*search_tasks)
 
         raw_sources = []
-        for q in plan["queries"]:
-            result = await self.search_agent.run(q)
-            raw_sources.extend(result["raw_results"])
+        for r in search_results:
+            raw_sources.extend(r["raw_results"])
 
-        validation = await self.validator_agent.run(raw_sources)
+        validation = await self.validator.run(raw_sources)
         sources = validation["accepted_sources"]
 
-        kb = await self.kb_agent.run(sources)
-        draft = await self.writer_agent.run(kb, metadata)
-        critic = await self.critic_agent.run(draft, kb)
-        refined = await self.refiner_agent.run(draft["draft_v1"], critic)
-        citations = await self.citation_agent.run(refined["final_text"], sources)
-        pdf_result = await self.pdf_agent.run(refined["final_text"], citations["references"], metadata)
+        kb = await self.kb.run(sources)
+        draft = await self.writer.run(kb, metadata)
+        critic = await self.critic.run(draft, kb)
+        refined = await self.refiner.run(draft["draft_v1"], critic)
+        citations = await self.citation.run(refined["final_text"], sources)
+        pdf_result = await self.pdf.run(refined["final_text"], citations["references"], metadata)
 
         audit_data = {
             "metadata": asdict(metadata),
@@ -254,20 +307,19 @@ class Orchestrator:
             "critic_report": critic
         }
 
-        audit_path = await self.audit_agent.run(audit_data)
+        audit_path = await self.audit.run(audit_data)
 
-        return pdf_result["html_path"], audit_path
+        return pdf_result, audit_path
 
 # ============================
-# Streamlit UI
+# STREAMLIT UI
 # ============================
 
-st.set_page_config(page_title="Online Report Writer", layout="wide")
-
-st.title("📄 Online Report Writer (Multi-Agent System)")
+st.set_page_config(page_title="Online Report Writer – Enterprise", layout="wide")
+st.title("Online Report Writer – Enterprise Edition")
 
 topic = st.text_input("Report Topic")
-subject = st.text_input("Subject / Field")
+subject = st.text_input("Subject")
 researcher = st.text_input("Researcher Name")
 institution = st.text_input("Institution")
 date = st.date_input("Date", datetime.date.today())
@@ -275,9 +327,9 @@ date = st.date_input("Date", datetime.date.today())
 if st.button("Generate Report"):
 
     if not topic:
-        st.error("Please enter a topic.")
+        st.error("Topic is required.")
     else:
-        with st.spinner("Running multi-agent research pipeline..."):
+        with st.spinner("Running enterprise multi-agent pipeline..."):
 
             metadata = ReportMetadata(
                 topic=topic,
@@ -288,12 +340,17 @@ if st.button("Generate Report"):
             )
 
             orchestrator = Orchestrator()
-            html_path, audit_path = asyncio.run(orchestrator.run(metadata))
+            result, audit_path = asyncio.run(orchestrator.run(metadata))
 
-            st.success("Report generated successfully!")
+            st.success("Report generated successfully.")
 
-            with open(html_path, "r", encoding="utf-8") as f:
-                st.download_button("Download HTML Report", f.read(), file_name="report.html")
+            if result["html"]:
+                with open(result["html"], "r", encoding="utf-8") as f:
+                    st.download_button("Download HTML", f.read(), "report.html")
+
+            if result["pdf"] and result["pdf"].exists():
+                with open(result["pdf"], "rb") as f:
+                    st.download_button("Download PDF", f.read(), "report.pdf")
 
             with open(audit_path, "r", encoding="utf-8") as f:
-                st.download_button("Download Audit JSON", f.read(), file_name="audit.json")
+                st.download_button("Download Audit JSON", f.read(), "audit.json")
