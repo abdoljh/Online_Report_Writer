@@ -1,23 +1,18 @@
-# streamlit_app.py
-# Enterprise Version 3.0
-# ChatGPT
-# Jan. 16, 2026
+# streamlit_app.py – Enterprise Edition v1.0 (Cloud Compatible, OpenAI SDK v1+)
 
-# streamlit_app.py – Enterprise Edition v1.0 (ReportLab PDF)
 import os
 import json
 import asyncio
 import uuid
-import datetime
 import requests
 from dataclasses import dataclass, asdict
 from typing import List
 from pathlib import Path
-#from dotenv import load_dotenv
+from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-from jinja2 import Template
 import streamlit as st
-import openai
+
+from openai import OpenAI
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
@@ -26,31 +21,19 @@ from reportlab.lib.styles import getSampleStyleSheet
 # =====================
 # Environment
 # =====================
-# Get API key from Streamlit Secrets
+
+load_dotenv()
+
 OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY")
 BING_API_KEY = st.secrets.get("BING_API_KEY")
-SEARCH_PROVIDER = st.secrets.get("SEARCH_PROVIDER", "serpapi")
-PDF_ENGINE = st.secrets.get("PDF_ENGINE", "weasyprint")
 
-# Check if they exist
-if not OPENAI_API_KEY or not BING_API_KEY or not SEARCH_PROVIDER or not PDF_ENGINE:
-    st.error("Missing API keys in Streamlit Secrets!")
-    raise RuntimeError("Missing API keys and/or other environment. Check Streamlit Secrets.")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY not set")
 
-# ============================
-# PATHS
-# ============================
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Define your base directory (the folder where your script lives)
-BASE_DIR = Path(__file__).resolve().parent
-
-# Define subdirectories
-OUTPUT_DIR = BASE_DIR / "outputs"
-TEMPLATE_DIR = BASE_DIR / "templates"
-
-# Ensure the directories exist (prevents FileNotFoundError)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = Path("output")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 # =====================
 # Data Models
@@ -195,7 +178,7 @@ Conclusion
 Use in-text numeric citations like [1], [2].
 """
 
-        resp = openai.ChatCompletion.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
@@ -208,7 +191,7 @@ class CriticAgent(Agent):
     async def run(self, draft):
         prompt = f"Review this report for factual errors, missing sections, structure, clarity:\n{draft}"
 
-        resp = openai.ChatCompletion.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
@@ -232,7 +215,7 @@ Report:
 Return the improved final report.
 """
 
-        resp = openai.ChatCompletion.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.25,
@@ -266,7 +249,8 @@ class PDFGeneratorAgent(Agent):
         story.append(PageBreak())
 
         for block in content_text.split("\n\n"):
-            story.append(Paragraph(block.replace("&", "&amp;").replace("<", "&lt;"), styles["BodyText"]))
+            safe = block.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            story.append(Paragraph(safe, styles["BodyText"]))
             story.append(Spacer(1, 10))
 
         doc.build(story)
@@ -332,7 +316,7 @@ class Orchestrator:
 # Streamlit UI
 # =====================
 
-st.set_page_config(page_title="Online Report Writer – Enterprise Edition", layout="centered")
+st.set_page_config(page_title="Online Report Writer – Enterprise Edition")
 
 st.title("Online Report Writer – Enterprise Edition")
 
