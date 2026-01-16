@@ -13,6 +13,4 @@ serpapi>=0.1.5
 crossrefapi>=1.6.0
 rapidfuzz>=3.6.1
 requests
-
-
-
+libpango-1.0-0
