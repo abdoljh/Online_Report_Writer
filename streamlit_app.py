@@ -1,8 +1,9 @@
 # streamlit_app.py
-# Enterprise Version 2.0
+# Enterprise Version 3.0
 # ChatGPT
 # Jan. 16, 2026
 
+# streamlit_app.py – Enterprise Edition v1.0 (ReportLab PDF)
 import os
 import json
 import asyncio
@@ -10,19 +11,21 @@ import uuid
 import datetime
 import requests
 from dataclasses import dataclass, asdict
-from typing import List, Dict
+from typing import List
 from pathlib import Path
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from jinja2 import Template
-import openai
 import streamlit as st
-from weasyprint import HTML
+import openai
 
-# ============================
-# ENVIRONMENT
-# ============================
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet
 
+# =====================
+# Environment
+# =====================
 # Get API key from Streamlit Secrets
 OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY")
 BING_API_KEY = st.secrets.get("BING_API_KEY")
@@ -70,7 +73,7 @@ class ReportMetadata:
     date: str
 
 # =====================
-# Agent Base
+# Base Agent
 # =====================
 
 class Agent:
@@ -95,7 +98,7 @@ class ResearchPlannerAgent(Agent):
             f"{topic} future outlook",
             f"{topic} site:edu",
             f"{topic} site:gov",
-            f"{topic} site:org"
+            f"{topic} site:org",
         ]
         return {"queries": queries}
 
@@ -105,17 +108,20 @@ class SearchAgent(Agent):
         results = []
 
         for q in queries:
-            url = "https://api.bing.microsoft.com/v7.0/search"
-            params = {"q": q, "count": 5}
-            r = requests.get(url, headers=headers, params=params, timeout=20)
-            data = r.json()
+            try:
+                url = "https://api.bing.microsoft.com/v7.0/search"
+                params = {"q": q, "count": 5}
+                r = requests.get(url, headers=headers, params=params, timeout=15)
+                data = r.json()
 
-            for item in data.get("webPages", {}).get("value", []):
-                results.append({
-                    "title": item["name"],
-                    "url": item["url"],
-                    "domain": item["url"].split("/")[2]
-                })
+                for item in data.get("webPages", {}).get("value", []):
+                    results.append({
+                        "title": item.get("name"),
+                        "url": item.get("url"),
+                        "domain": item.get("url").split("/")[2]
+                    })
+            except:
+                continue
 
         return {"raw_results": results}
 
@@ -127,6 +133,7 @@ class SourceValidatorAgent(Agent):
         for r in raw_results:
             domain = r["domain"]
             score = 0.6
+
             if domain.endswith(".edu") or domain.endswith(".gov"):
                 score = 0.95
             elif domain.endswith(".org"):
@@ -150,7 +157,7 @@ class KnowledgeBaseBuilderAgent(Agent):
 
         for s in sources[:15]:
             try:
-                html = requests.get(s.url, timeout=20).text
+                html = requests.get(s.url, timeout=15).text
                 soup = BeautifulSoup(html, "html.parser")
                 text = " ".join(p.get_text() for p in soup.find_all("p")[:10])
                 facts.append({
@@ -158,7 +165,7 @@ class KnowledgeBaseBuilderAgent(Agent):
                     "text": text[:2000]
                 })
             except:
-                pass
+                continue
 
         return {"facts": facts}
 
@@ -170,10 +177,11 @@ Write a professional academic research report on:
 
 Topic: {metadata.topic}
 
-Facts:
+Use the following extracted factual material:
+
 {json.dumps(kb["facts"], indent=2)}
 
-Sections:
+Required sections:
 Executive Summary
 Abstract
 Introduction
@@ -184,7 +192,7 @@ Challenges
 Future Outlook
 Conclusion
 
-Use citations like [1], [2].
+Use in-text numeric citations like [1], [2].
 """
 
         resp = openai.ChatCompletion.create(
@@ -198,20 +206,22 @@ Use citations like [1], [2].
 
 class CriticAgent(Agent):
     async def run(self, draft):
-        prompt = f"Review this report for factual issues, coherence, structure and missing sections:\n{draft}"
+        prompt = f"Review this report for factual errors, missing sections, structure, clarity:\n{draft}"
+
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=1000
+            max_tokens=1200
         )
+
         return {"critic_notes": resp.choices[0].message.content}
 
 class RefinerAgent(Agent):
     async def run(self, draft, critic):
 
         prompt = f"""
-Improve the following report using this feedback:
+Improve the report using the feedback below.
 
 Feedback:
 {critic}
@@ -219,7 +229,7 @@ Feedback:
 Report:
 {draft}
 
-Return improved report.
+Return the improved final report.
 """
 
         resp = openai.ChatCompletion.create(
@@ -235,13 +245,32 @@ class CitationManagerAgent(Agent):
     async def run(self, sources):
         refs = []
         for s in sources:
-            refs.append(f"[{s.id}] {s.title}. {s.url} (Credibility {int(s.credibility_score*100)}%)")
+            refs.append(f"[{s.id}] {s.title}. {s.url}")
         return {"references": refs}
 
 class PDFGeneratorAgent(Agent):
-    async def run(self, html_path):
-        pdf_path = html_path.with_suffix(".pdf")
-        HTML(filename=str(html_path)).write_pdf(str(pdf_path))
+    async def run(self, content_text, metadata):
+
+        pdf_path = OUTPUT_DIR / f"report_{uuid.uuid4().hex}.pdf"
+        styles = getSampleStyleSheet()
+        doc = SimpleDocTemplate(str(pdf_path), pagesize=A4)
+
+        story = []
+
+        story.append(Paragraph(metadata.topic, styles["Title"]))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"Subject: {metadata.subject}", styles["Normal"]))
+        story.append(Paragraph(f"Researcher: {metadata.researcher}", styles["Normal"]))
+        story.append(Paragraph(f"Institution: {metadata.institution}", styles["Normal"]))
+        story.append(Paragraph(f"Date: {metadata.date}", styles["Normal"]))
+        story.append(PageBreak())
+
+        for block in content_text.split("\n\n"):
+            story.append(Paragraph(block.replace("&", "&amp;").replace("<", "&lt;"), styles["BodyText"]))
+            story.append(Spacer(1, 10))
+
+        doc.build(story)
+
         return {"pdf": pdf_path}
 
 class AuditExporterAgent(Agent):
@@ -274,74 +303,36 @@ class Orchestrator:
         audit_log = {}
 
         t = await self.topic.run(metadata)
-        audit_log["topic"] = t
-
         plan = await self.planner.run(t["topic"])
-        audit_log["plan"] = plan
-
         search = await self.search.run(plan["queries"])
-        audit_log["search"] = search
-
         valid = await self.validator.run(search["raw_results"])
-        audit_log["sources"] = [asdict(s) for s in valid["sources"]]
-
         kb = await self.kb.run(valid["sources"])
-        audit_log["kb"] = kb
-
         draft = await self.writer.run(kb, metadata)
-        audit_log["draft"] = draft
-
         critic = await self.critic.run(draft["draft_v1"])
-        audit_log["critic"] = critic
-
         refined = await self.refiner.run(draft["draft_v1"], critic["critic_notes"])
-        audit_log["final"] = refined
-
         citations = await self.citation.run(valid["sources"])
-        audit_log["citations"] = citations
 
-        html_path = OUTPUT_DIR / f"report_{uuid.uuid4().hex}.html"
+        audit_log.update({
+            "topic": t,
+            "queries": plan,
+            "sources": [asdict(s) for s in valid["sources"]],
+            "kb": kb,
+            "draft": draft,
+            "critic": critic,
+            "final": refined,
+            "citations": citations
+        })
 
-        html_content = self.render_html(metadata, refined["final_text"], citations["references"])
-        html_path.write_text(html_content, encoding="utf-8")
-
-        pdf = await self.pdf.run(html_path)
-
+        pdf = await self.pdf.run(refined["final_text"], metadata)
         audit_file = await self.audit.run(audit_log)
 
-        return {
-            "html": html_path,
-            "pdf": pdf["pdf"]
-        }, audit_file["audit_path"]
-
-    def render_html(self, metadata, content, references):
-
-        template = Template("""
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>{{ metadata.topic }}</title></head>
-<body>
-<h1>{{ metadata.topic }}</h1>
-<p><b>Subject:</b> {{ metadata.subject }}</p>
-<p><b>Researcher:</b> {{ metadata.researcher }}</p>
-<p><b>Institution:</b> {{ metadata.institution }}</p>
-<p><b>Date:</b> {{ metadata.date }}</p>
-<hr>
-<pre>{{ content }}</pre>
-<hr>
-<h2>References</h2>
-{% for r in references %}
-<p>{{ r }}</p>
-{% endfor %}
-</body>
-</html>
-""")
-
-        return template.render(metadata=metadata, content=content, references=references)
+        return pdf["pdf"], audit_file["audit_path"]
 
 # =====================
 # Streamlit UI
 # =====================
+
+st.set_page_config(page_title="Online Report Writer – Enterprise Edition", layout="centered")
 
 st.title("Online Report Writer – Enterprise Edition")
 
@@ -353,25 +344,25 @@ date = st.date_input("Date")
 
 if st.button("Generate Report"):
 
-    metadata = ReportMetadata(
-        topic=topic,
-        subject=subject,
-        researcher=researcher,
-        institution=institution,
-        date=str(date)
-    )
+    if not topic or not subject or not researcher or not institution:
+        st.error("Please complete all fields.")
+    else:
+        metadata = ReportMetadata(
+            topic=topic,
+            subject=subject,
+            researcher=researcher,
+            institution=institution,
+            date=str(date)
+        )
 
-    with st.spinner("Generating report..."):
-        orchestrator = Orchestrator()
-        result, audit_path = asyncio.run(orchestrator.run(metadata))
+        with st.spinner("Running multi-agent research and report generation..."):
+            orchestrator = Orchestrator()
+            pdf_path, audit_path = asyncio.run(orchestrator.run(metadata))
 
-    st.success("Report generated successfully")
+        st.success("Report generated successfully.")
 
-    with open(result["html"], "r", encoding="utf-8") as f:
-        st.download_button("Download HTML", f.read(), "report.html")
+        with open(pdf_path, "rb") as f:
+            st.download_button("Download PDF Report", f.read(), "report.pdf")
 
-    with open(result["pdf"], "rb") as f:
-        st.download_button("Download PDF", f.read(), "report.pdf")
-
-    with open(audit_path, "r", encoding="utf-8") as f:
-        st.download_button("Download Audit Log", f.read(), "audit.json")
+        with open(audit_path, "r", encoding="utf-8") as f:
+            st.download_button("Download Audit Log", f.read(), "audit.json")
